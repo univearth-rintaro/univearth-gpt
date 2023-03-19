@@ -1,0 +1,3 @@
+# univearthGPT
+
+slack用chatGPT
