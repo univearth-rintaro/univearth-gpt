@@ -120,7 +120,7 @@ func handleAppMention(api *slack.Client, client *http.Client, botUserID string, 
 	}
 }
 
-func HandleURLVerification(body string) (*slackevents.ChallengeResponse ,error) {
+func HandleURLVerification(body string) (*slackevents.ChallengeResponse, error) {
 	var res *slackevents.ChallengeResponse
 	if err := json.Unmarshal([]byte(body), &res); err != nil {
 		return nil, err
@@ -147,7 +147,7 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 
 	// new line
 	body := request.Body
-	fmt.Printf("HERE: %s\n", body);
+	fmt.Printf("HERE: %s\n", body)
 	eventsAPIEvent, err := slackevents.ParseEvent(json.RawMessage(body), slackevents.OptionNoVerifyToken())
 	if err != nil {
 		return events.APIGatewayProxyResponse{Body: "slack conection error", StatusCode: 500}, err
