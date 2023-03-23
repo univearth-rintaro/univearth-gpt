@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+
+Parameters:
+  OpenaiApiKey:
+    Type: String
+    NoEcho: true
+  SlackBotToken:
+    Type: String
+    NoEcho: true
+
+Resources:
+  UnivearthGptApi:
+    Type: 'AWS::Serverless::Api'
+    Properties:
+      Name: univearth-gpt-api
+      StageName: private
+      DefinitionBody:
+        swagger: '2.0'
+        info:
+          title: Example API
+          version: '1.0'
+        paths:
+          /events:
+            post:
+              x-amazon-apigateway-integration:
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UnivearthGptFunction.Arn}/invocations
+                passthroughBehavior: when_no_match
+                httpMethod: POST
+                type: aws_proxy
+              responses: {}
+              security: []
+    DependsOn:
+      - UnivearthGptFunction:
+
+  UnivearthGptFunction:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      CodeUri: .
+      Handler: main
+      Runtime: go1.x
+      Architectures:
+        - x86_64
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /events
+            Method: POST
+            RestApiId: !Ref UnivearthGptApi
+      Environment:
+        Variables:
+          OPENAI_API_KEY: !Ref OpenaiApiKey
+          SLACK_BOT_TOKEN: !Ref SlackBotToken
+
+# Outputs:
+#   ExampleApiUrl:
+#     Value: !Sub 'https://${ExampleApi}.execute-api.${AWS::Region}.amazonaws.com/prod/myresource'
