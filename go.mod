@@ -9,6 +9,7 @@ require (
 )
 
 require (
+	github.com/aws/aws-lambda-go v1.38.0 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	golang.org/x/net v0.8.0 // indirect

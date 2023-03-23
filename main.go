@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/joho/godotenv"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -89,7 +91,7 @@ func chatGPTResponse(client *http.Client, prompt string) (string, error) {
 }
 
 // handleAppMention関数を変更して、botUserIDを引数として受け取る
-func handleAppMention(api *slack.Client, client *http.Client, w http.ResponseWriter, botUserID string, event *slackevents.MessageEvent) {
+func handleAppMention(api *slack.Client, client *http.Client, botUserID string, event *slackevents.MessageEvent) {
 	if event.User == botUserID {
 		return
 	}
@@ -118,19 +120,16 @@ func handleAppMention(api *slack.Client, client *http.Client, w http.ResponseWri
 	}
 }
 
-func handleURLVerification(w http.ResponseWriter, r *http.Request, body string) {
-	var response *slackevents.ChallengeResponse
-	err := json.Unmarshal([]byte(body), &response)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+func HandleURLVerification(body string) (*slackevents.ChallengeResponse ,error) {
+	var res *slackevents.ChallengeResponse
+	if err := json.Unmarshal([]byte(body), &res); err != nil {
+		return nil, err
 	}
 
-	w.Header().Set("Content-Type", "text")
-	w.Write([]byte(response.Challenge))
+	return res, nil
 }
 
-func main() {
+func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
@@ -146,56 +145,60 @@ func main() {
 	}
 	botUserID := info.UserID
 
-	http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("Test route hit")
-		w.WriteHeader(http.StatusOK)
-	})
+	// new line
+	body := request.Body
+	fmt.Printf("HERE: %s\n", body);
+	eventsAPIEvent, err := slackevents.ParseEvent(json.RawMessage(body), slackevents.OptionNoVerifyToken())
+	if err != nil {
+		return events.APIGatewayProxyResponse{Body: "slack conection error", StatusCode: 500}, err
+	}
 
-	http.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
-
-		buf := new(strings.Builder)
-		io.Copy(buf, r.Body)
-		body := buf.String()
-
-		fmt.Printf("Event raw data: %s\n", body)
-
-		eventsAPIEvent, err := slackevents.ParseEvent(json.RawMessage(body), slackevents.OptionNoVerifyToken())
+	switch eventsAPIEvent.Type {
+	case slackevents.URLVerification:
+		res, err := HandleURLVerification(body)
 		if err != nil {
-			fmt.Printf("Error parsing event: %v\n", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+			return events.APIGatewayProxyResponse{Body: "slack conection error", StatusCode: 500}, err
 		}
+		return events.APIGatewayProxyResponse{
+			Body:       res.Challenge,
+			StatusCode: 200,
+		}, nil
 
-		switch eventsAPIEvent.Type {
-		case slackevents.URLVerification:
-			handleURLVerification(w, r, body)
-
-		case slackevents.CallbackEvent:
-			innerEvent := eventsAPIEvent.InnerEvent
-			fmt.Printf("Inner event type: %T\n", innerEvent.Data)
-			switch ev := innerEvent.Data.(type) {
-			case *slackevents.AppMentionEvent:
-				fmt.Println("AppMention event received")
-				if ev.User != botUserID {
-					handleAppMention(api, client, w, botUserID, &slackevents.MessageEvent{
-						User:    ev.User,
-						Channel: ev.Channel,
-						Text:    ev.Text,
-					})
-				}
-			case *slackevents.MessageEvent:
-				fmt.Println("Message event received")
-				if ev.User != botUserID && ev.ChannelType == "im" {
-					handleAppMention(api, client, w, botUserID, ev)
-				}
-			default:
-				fmt.Printf("Unknown event type: %T\n", ev)
+	case slackevents.CallbackEvent:
+		innerEvent := eventsAPIEvent.InnerEvent
+		fmt.Printf("Inner event type: %T\n", innerEvent.Data)
+		switch ev := innerEvent.Data.(type) {
+		case *slackevents.AppMentionEvent:
+			fmt.Println("AppMention event received")
+			if ev.User != botUserID {
+				defer handleAppMention(api, client, botUserID, &slackevents.MessageEvent{
+					User:    ev.User,
+					Channel: ev.Channel,
+					Text:    ev.Text,
+				})
+			}
+			return events.APIGatewayProxyResponse{
+				Body:       "",
+				StatusCode: 200,
+			}, nil
+		case *slackevents.MessageEvent:
+			fmt.Println("Message event received")
+			if ev.User != botUserID && ev.ChannelType == "im" {
+				handleAppMention(api, client, botUserID, ev)
 			}
 		default:
-			fmt.Printf("Unknown event type: %s\n", eventsAPIEvent.Type)
+			fmt.Printf("Unknown event type: %T\n", ev)
 		}
-	})
+	default:
+		fmt.Printf("Unknown event type: %s\n", eventsAPIEvent.Type)
+	}
 
-	fmt.Println("[INFO] Server listening on :3000")
-	http.ListenAndServe(":3000", nil)
+	return events.APIGatewayProxyResponse{
+		Body:       "",
+		StatusCode: 200,
+	}, nil
+}
+
+func main() {
+	lambda.Start(handler)
 }
